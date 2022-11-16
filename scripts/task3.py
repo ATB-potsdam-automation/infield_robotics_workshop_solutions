@@ -18,6 +18,7 @@ import tf2_ros
 from geometry_msgs.msg import PoseStamped, TransformStamped, Point
 from nav_msgs.msg import Path
 
+
 class RfidReader():
     
     def __init__(self):        
@@ -33,43 +34,55 @@ class RfidReader():
         
         self.path_publisher = rospy.Publisher("/irus/path", Path, queue_size = 1)
         
+        # set up a tf2 Buffer this stores the incoming tf-messages       
         self.tfBuffer = tf2_ros.Buffer()
+        # set up our TransformListener, this gives us access to transformations (even past ones through the buffer)
         self.listener = tf2_ros.TransformListener(self.tfBuffer)
-        self.path = Path()
-        self.path.header.frame_id = "map"
-        # TransformStamped.transform.translation
+                
+        # bool to avoid old latched message
+        self.init = True
     
     def send_current_position_as_goal(self):
+        """
+        YOUR CODE GOES HERE:
+        
+        get the transform between the frame   map   and the frame   uav/base_link   (position of the uav) 
+        using the tfBuffer: self.tfBuffer.lookup_transform(target_frame, source_frame, time, timeout)
+        print out the result.
+        translation kann be accessed as e.g. transform_object.transform.translation.x. 
+        rotation as transform_object.transform.rotation.x
+        """
+        # get the transform
         transform = self.tfBuffer.lookup_transform('map', "uav/base_footprint", rospy.Time.now(), rospy.Duration(0.1))
+        # print out the rotation
         rospy.loginfo("\n received Rotation: (%f, %f, %f,%f),  \n", transform.transform.rotation.x, transform.transform.rotation.y, transform.transform.rotation.z, transform.transform.rotation.w,)
+        # print out the translation
         rospy.loginfo("\n received Translation: (%f, %f, %f),  \n", transform.transform.translation.x, transform.transform.translation.y, transform.transform.translation.z)
-        current_pose = PoseStamped()
-        current_pose.header.frame_id = 'map'
-        current_pose.header.stamp = rospy.Time.now()
-        current_pose.pose.position = Point(transform.transform.translation.x, transform.transform.translation.y, transform.transform.translation.z )
-        current_pose.pose.orientation = transform.transform.rotation
-        self.path.poses.append(current_pose)
-        self.path_publisher.publish(self.path)
-        
-        
-        pass
    
-    # RFID detection callback 
     def rfid_callback(self, message : RelativeHumidity):
+                
+        # skip first message (old latched)
+        if self.init:
+            return
+        
         # check if the humidity we read out is below threshold
         if message.relative_humidity < 0.5:
+            rospy.loginfo(" Humidity too low - Sending goal to UGV")
+            # if it is below a certain threshold send the current UAV position as goal-point to the UGV
             self.send_current_position_as_goal()      
     
     # GPS-position (fix) message callback 
     def gps_callback(self, message : NavSatFix):
+        
+        # let other callbacks know that gps is available
+        if self.init:
+            self.init = False
         
         # print the current position every two seconds (not for every message)
         rospy.loginfo_throttle(2.0, "Read GPS Position. Lat: %f Long: %f \n", message.latitude, message.longitude)
         
         # store the position in a object attribute
         self.current_pos = message
-        
-        
 
     def run(self):
 

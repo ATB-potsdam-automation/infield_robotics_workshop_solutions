@@ -18,8 +18,6 @@ import csv
 import rospkg
 
 
-
-
 class RfidReader():
     
     def __init__(self):        
@@ -31,7 +29,7 @@ class RfidReader():
         self.fh = open(pkg_folder + "/results/humidity_sensors.csv", "w")
         
         # create a csv_writer object to write data the Dict-Writer uses a Dictionary Structure
-        self.csv_writer = csv.DictWriter(self.fh, fieldnames=['Latitude', 'Longitude', 'Humidity'])
+        self.csv_writer = csv.DictWriter(self.fh, fieldnames=['Sensor_ID', 'Latitude', 'Longitude', 'Humidity'])
 
         self.csv_writer.writeheader()
         
@@ -39,17 +37,25 @@ class RfidReader():
         self.current_pos = NavSatFix()
 
         # hook the first subscriber to our rfid-callback
-        rospy.Subscriber("/rfid_detections", RelativeHumidity, self.rfid_callback)
+        rospy.Subscriber("/rfid_detections", RelativeHumidity, self.rfid_callback, queue_size=1)
         
         # hook the first subscriber to the fix-callback
         rospy.Subscriber("/uav1/fix", NavSatFix, self.gps_callback)
+        
+        self.init = True
         
 
     # RFID detection callback
     def rfid_callback(self, message : RelativeHumidity):
         
+        # skip first message (old latched)
+        if self.init:
+            return
         
-        # we need to make sure the writer has been initialised:
+        # print RFID-sensor info to the screen
+        rospy.loginfo("\n\n Read RFID-Sensor! Sensor: %s Humidity: %f \n", message.header.frame_id, message.relative_humidity)
+                
+        # we need to make sure the writer has been initialised and the file has not been closed:
         if self.csv_writer is not None:
                         
             """
@@ -64,11 +70,15 @@ class RfidReader():
             documentation of the csv-DictWriter can be found here: https://docs.python.org/3/library/csv.html#csv.DictWriter 
                 
             """
-            rospy.loginfo("\n\n Read RFID-Sensor! Sensor: %s Humidity: %f \n", message.header.frame_id, message.relative_humidity)
-            self.csv_writer.writerow({'Latitude': self.current_pos.latitude, 'Longitude': self.current_pos.longitude, 'Humidity': message.relative_humidity})
+            self.csv_writer.writerow({'Sensor_ID': message.header.frame_id, 'Latitude': self.current_pos.latitude, 'Longitude': self.current_pos.longitude, 'Humidity': message.relative_humidity})
 
     # GPS-position (fix) message callback 
     def gps_callback(self, message : NavSatFix):
+        
+        # let other callbacks know that gps is available
+        if self.init:
+            self.init = False
+        
         # print the current position every two seconds (not for every message)
         rospy.loginfo_throttle(2.0, "Read GPS Position. Lat: %f Long: %f \n", message.latitude, message.longitude)
         

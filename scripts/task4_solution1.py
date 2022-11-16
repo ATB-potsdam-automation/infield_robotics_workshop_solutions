@@ -14,6 +14,9 @@
 
 import rospy
 from sensor_msgs.msg import RelativeHumidity, NavSatFix
+import tf2_ros
+import tf.transformations
+from tf2_geometry_msgs import PoseStamped
 
 
 class RfidReader():
@@ -28,25 +31,52 @@ class RfidReader():
         
         # hook the first subscriber to the fix-callback
         rospy.Subscriber("/uav1/fix", NavSatFix, self.gps_callback)
+               
+        # set up a tf2 Buffer this stores the incoming tf-messages       
+        self.tfBuffer = tf2_ros.Buffer()
+        # set up our TransformListener, this gives us access to transformations (even past ones through the buffer)
+        self.listener = tf2_ros.TransformListener(self.tfBuffer)
                 
         # bool to avoid old latched message
         self.init = True
-   
+    
+    def send_current_position_as_goal(self):
+        
+        # get the transform from map to the uav base_link
+        transform = self.tfBuffer.lookup_transform("map", "uav/base_link", rospy.Time.now(), rospy.Duration(0.1))       
+        
+        # get data fields of tranformation
+        q = [transform.transform.rotation.x, transform.transform.rotation.y, transform.transform.rotation.z, transform.transform.rotation.w]
+        
+        # get the inverse of the quaternion
+        q_inv = tf.transformations.quaternion_inverse([transform.transform.rotation.x, transform.transform.rotation.y, transform.transform.rotation.z, transform.transform.rotation.w])
+        
+        # define the point to be transformed (0, 0, 0) ( position of the uav in its own coordinate system)
+        # we have to add a zero at the end in order to be able to multiply it with the quaternion
+        current_position_local = [0, 0, 0, 0]
+        
+        # compute the rotated position p_new = q*p*q_inv
+        current_position_rotated = tf.transformations.quaternion_multiply(tf.transformations.quaternion_multiply(q, current_position_local), q_inv)
+
+        # translate the rotated position
+        current_position_map = [current_position_rotated[0] + transform.transform.translation.x, current_position_rotated[1] + transform.transform.translation.y, current_position_rotated[2] + transform.transform.translation.z] 
+        
+        # printout the results
+        rospy.loginfo("\n transformed Position: (%f, %f, %f),  \n", current_position_map[0], current_position_map[1], current_position_map[2])
+        
+        
     # RFID detection callback 
     def rfid_callback(self, message : RelativeHumidity):
-        
+                
         # skip first message (old latched)
         if self.init:
             return
         
-        """
-        YOUR CODE GOES BELOW THIS PART 
-        
-        add the latest GPS position to the data printout
-        
-        """
-        # print out the frame_id (in this case sensor_id) and the humidity value
-        rospy.loginfo("\n\n Read RFID-Sensor! Sensor: %s Humidity: %f, Lat: %f Long: %f \n", message.header.frame_id, message.relative_humidity, self.current_pos.latitude, self.current_pos.longitude)
+        # check if the humidity we read out is below threshold
+        if message.relative_humidity < 0.5:
+            rospy.loginfo(" Humidity too low - Send goal to UGV")
+            # if it is below a certain threshold send the current UAV position as goal-point to the UGV
+            self.send_current_position_as_goal()      
     
     # GPS-position (fix) message callback 
     def gps_callback(self, message : NavSatFix):
@@ -65,6 +95,7 @@ class RfidReader():
 
         # spin() simply keeps python from exiting until this node is stopped
         rospy.spin()
+        
 
 if __name__ == '__main__':
     

@@ -14,6 +14,9 @@
 
 import rospy
 from sensor_msgs.msg import RelativeHumidity, NavSatFix
+import tf2_ros
+from geometry_msgs.msg import PoseStamped, TransformStamped, Point
+from nav_msgs.msg import Path
 
 
 class RfidReader():
@@ -24,29 +27,54 @@ class RfidReader():
         self.current_pos = NavSatFix()
 
         # hook the first subscriber to our rfid-callback
-        rospy.Subscriber("/rfid_detections", RelativeHumidity, self.rfid_callback)
+        rospy.Subscriber("/rfid_detections", RelativeHumidity, self.rfid_callback, queue_size=1)
         
         # hook the first subscriber to the fix-callback
         rospy.Subscriber("/uav1/fix", NavSatFix, self.gps_callback)
+        
+        # set up a tf2 Buffer this stores the incoming tf-messages       
+        self.tfBuffer = tf2_ros.Buffer()
+        # set up our TransformListener, this gives us access to transformations (even past ones through the buffer)
+        self.listener = tf2_ros.TransformListener(self.tfBuffer)
+        
+        # set up Path object for the UGV
+        self.path = Path()
+        self.path.header.frame_id = "map"
+        # set up publisher for the path         
+        self.path_publisher = rospy.Publisher("/ugv/path", Path, queue_size = 1)
                 
         # bool to avoid old latched message
         self.init = True
+    
+    def send_current_position_as_goal(self):
+        # get position of uav in map
+        transform = self.tfBuffer.lookup_transform('map', "uav/base_link", rospy.Time.now(), rospy.Duration(0.1))
+
+        # create PoseStamped object with current position
+        current_pose = PoseStamped()
+        current_pose.header.frame_id = 'map'
+        current_pose.header.stamp = rospy.Time.now()
+        # set the z-component to zero (UGVs can't fly )
+        current_pose.pose.position = Point(transform.transform.translation.x, transform.transform.translation.y, 0 )
+        current_pose.pose.orientation = transform.transform.rotation
+        
+        # append the pose to our path object and publish it to ROS
+        self.path.poses.append(current_pose)
+        self.path_publisher.publish(self.path)
+        
+        
+        pass
    
     # RFID detection callback 
     def rfid_callback(self, message : RelativeHumidity):
-        
+                
         # skip first message (old latched)
         if self.init:
             return
         
-        """
-        YOUR CODE GOES BELOW THIS PART 
-        
-        add the latest GPS position to the data printout
-        
-        """
-        # print out the frame_id (in this case sensor_id) and the humidity value
-        rospy.loginfo("\n\n Read RFID-Sensor! Sensor: %s Humidity: %f, Lat: %f Long: %f \n", message.header.frame_id, message.relative_humidity, self.current_pos.latitude, self.current_pos.longitude)
+        # check if the humidity we read out is below threshold
+        if message.relative_humidity < 0.5:
+            self.send_current_position_as_goal()      
     
     # GPS-position (fix) message callback 
     def gps_callback(self, message : NavSatFix):
@@ -65,6 +93,8 @@ class RfidReader():
 
         # spin() simply keeps python from exiting until this node is stopped
         rospy.spin()
+        
+        print(self.path)
 
 if __name__ == '__main__':
     

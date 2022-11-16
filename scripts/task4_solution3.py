@@ -14,6 +14,9 @@
 
 import rospy
 from sensor_msgs.msg import RelativeHumidity, NavSatFix
+import tf2_ros
+import tf.transformations
+from tf2_geometry_msgs import PoseStamped
 
 
 class RfidReader():
@@ -28,25 +31,32 @@ class RfidReader():
         
         # hook the first subscriber to the fix-callback
         rospy.Subscriber("/uav1/fix", NavSatFix, self.gps_callback)
+               
+        # set up a tf2 Buffer this stores the incoming tf-messages       
+        self.tfBuffer = tf2_ros.Buffer()
+        # set up our TransformListener, this gives us access to transformations (even past ones through the buffer)
+        self.listener = tf2_ros.TransformListener(self.tfBuffer)
                 
         # bool to avoid old latched message
         self.init = True
+    
+    def send_current_position_as_goal(self):
+        # since we are transforming the pose 0 0 0, the solution is directly the transformation
+        # this is not really a solution to the task but gives the same results
+        transform = self.tfBuffer.lookup_transform('map', "uav/base_link", rospy.Time.now(), rospy.Duration(0.1))
+        rospy.loginfo("transformed Rotation: (%f, %f, %f,%f),  \n", transform.transform.rotation.x, transform.transform.rotation.y, transform.transform.rotation.z, transform.transform.rotation.w,)
+        rospy.loginfo("transformed Position: (%f, %f, %f),  \n", transform.transform.translation.x, transform.transform.translation.y, transform.transform.translation.z)
    
     # RFID detection callback 
     def rfid_callback(self, message : RelativeHumidity):
-        
+                
         # skip first message (old latched)
         if self.init:
             return
         
-        """
-        YOUR CODE GOES BELOW THIS PART 
-        
-        add the latest GPS position to the data printout
-        
-        """
-        # print out the frame_id (in this case sensor_id) and the humidity value
-        rospy.loginfo("\n\n Read RFID-Sensor! Sensor: %s Humidity: %f, Lat: %f Long: %f \n", message.header.frame_id, message.relative_humidity, self.current_pos.latitude, self.current_pos.longitude)
+        # check if the humidity we read out is below threshold
+        if message.relative_humidity < 0.5:
+            self.send_current_position_as_goal()    
     
     # GPS-position (fix) message callback 
     def gps_callback(self, message : NavSatFix):
@@ -65,6 +75,7 @@ class RfidReader():
 
         # spin() simply keeps python from exiting until this node is stopped
         rospy.spin()
+        
 
 if __name__ == '__main__':
     
