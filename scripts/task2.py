@@ -23,7 +23,7 @@ class RfidReader():
     def __init__(self):        
         # get path of ros_pkg
         rospack = rospkg.RosPack()
-        pkg_folder = rospack.get_path('infield_robotics_ws_solutions')
+        pkg_folder = rospack.get_path('infield_robotics_workshop_solutions')
         
         # open a csv file in the results folder of the package for data saving
         self.fh = open(pkg_folder + "/results/humidity_sensors.csv", "w")
