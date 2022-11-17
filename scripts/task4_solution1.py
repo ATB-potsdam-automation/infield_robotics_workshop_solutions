@@ -52,17 +52,25 @@ class RfidReader():
         q_inv = tf.transformations.quaternion_inverse([transform.transform.rotation.x, transform.transform.rotation.y, transform.transform.rotation.z, transform.transform.rotation.w])
         
         # define the point to be transformed (0, 0, 0) ( position of the uav in its own coordinate system)
-        # we have to add a zero at the end in order to be able to multiply it with the quaternion
+        # we have to add a zero at the end in order to be able to multiply it with the quaternion (we can do that since it has no effect on the results)
         current_position_local = [0, 0, 0, 0]
         
-        # compute the rotated position p_new = q*p*q_inv
-        current_position_rotated = tf.transformations.quaternion_multiply(tf.transformations.quaternion_multiply(q, current_position_local), q_inv)
+        # compute the rotated position p_new = q*p*q_inv. Get the first 3 entries (x, y, z)
+        current_position_rotated = tf.transformations.quaternion_multiply(tf.transformations.quaternion_multiply(q, current_position_local), q_inv) [0:3]
 
+        # compute the new rotation: p_new = q*p*q_inv
+        # initialise as unit quaternion (no rotation in own frame)
+        current_rotation_local = [0, 0, 0, 1]
+        
+        # rotate by transformation result
+        current_rotation_map = tf.transformations.quaternion_multiply(tf.transformations.quaternion_multiply(q, current_rotation_local), q_inv)
+        
         # translate the rotated position
         current_position_map = [current_position_rotated[0] + transform.transform.translation.x, current_position_rotated[1] + transform.transform.translation.y, current_position_rotated[2] + transform.transform.translation.z] 
         
         # printout the results
-        rospy.loginfo("\n transformed Position: (%f, %f, %f),  \n", current_position_map[0], current_position_map[1], current_position_map[2])
+        rospy.loginfo("transformed Position: (%f, %f, %f),  \n", current_position_map[0], current_position_map[1], current_position_map[2])
+        rospy.loginfo("transformed Rotation: (%f, %f, %f, %f),  \n", current_rotation_map[0], current_rotation_map[1], current_rotation_map[2], current_rotation_map[3])
         
         
     # RFID detection callback 
